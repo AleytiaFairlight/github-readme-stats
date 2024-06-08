@@ -91,7 +91,7 @@ const fetchRepo = async (username, reponame) => {
   const isUser = data.organization === null && data.user;
   const isOrg = data.user === null && data.organization;
 
-  if (isUser) {
+/*  if (isUser) {
     if (!data.user.repository || data.user.repository.isPrivate) {
       throw new Error("User Repository Not found");
     }
@@ -99,7 +99,7 @@ const fetchRepo = async (username, reponame) => {
       ...data.user.repository,
       starCount: data.user.repository.stargazers.totalCount,
     };
-  }
+  } */
 
   if (isOrg) {
     if (
