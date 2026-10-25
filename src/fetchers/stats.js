@@ -6,7 +6,7 @@ import githubUsernameRegex from "github-username-regex";
 import { calculateRank } from "../calculateRank.js";
 import { retryer } from "../common/retryer.js";
 import { logger } from "../common/log.js";
-import { excludeRepositories } from "../common/envs.js";
+import { countAllBranchCommits, excludeRepositories } from "../common/envs.js";
 import { CustomError, MissingParamError } from "../common/error.js";
 import { wrapTextMultiline } from "../common/fmt.js";
 import { request } from "../common/http.js";
@@ -180,6 +180,83 @@ const fetchTotalCommits = (variables, token) => {
 };
 
 /**
+ * Fetch every page of a REST list endpoint.
+ *
+ * @param {string} url First page URL.
+ * @param {string} token GitHub token.
+ * @returns {Promise<any[]>} All items.
+ */
+const fetchAllPages = async (url, token) => {
+  const items = [];
+  /** @type {string | undefined} */
+  let next = url;
+  while (next) {
+    const res = await axios({
+      method: "get",
+      url: next,
+      headers: { Authorization: `token ${token}` },
+    });
+    items.push(...res.data);
+    next = /<([^>]+)>;\s*rel="next"/.exec(res.headers.link || "")?.[1];
+  }
+  return items;
+};
+
+/**
+ * Count the user's commits on all branches of every repository they own,
+ * forks included. Commits reachable from several branches count once.
+ *
+ * @param {object} variables Fetcher variables.
+ * @param {string} token GitHub token.
+ * @returns {Promise<{ data: { total_count: number } }>} Total in the same shape as commit search.
+ */
+const fetchAllBranchCommits = async (variables, token) => {
+  const repos = [];
+  let after = null;
+  do {
+    const res = await request(
+      {
+        query: `
+        query repos($login: String!, $after: String) {
+          user(login: $login) {
+            repositories(first: 100, ownerAffiliations: OWNER, after: $after) {
+              nodes { nameWithOwner }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
+        }`,
+        variables: { login: variables.login, after },
+      },
+      { Authorization: `bearer ${token}` },
+    );
+    if (res.data.errors) {
+      // Let the retryer see rate limit and auth errors.
+      return res;
+    }
+    const page = res.data.data.user.repositories;
+    repos.push(...page.nodes.map((node) => node.nameWithOwner));
+    after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+  } while (after);
+
+  const shas = new Set();
+  const api = "https://api.github.com/repos";
+  for (const repo of repos) {
+    const branches = await fetchAllPages(
+      `${api}/${repo}/branches?per_page=100`,
+      token,
+    );
+    for (const branch of branches) {
+      const commits = await fetchAllPages(
+        `${api}/${repo}/commits?sha=${encodeURIComponent(branch.name)}&author=${variables.login}&per_page=100`,
+        token,
+      );
+      commits.forEach((commit) => shas.add(commit.sha));
+    }
+  }
+  return { data: { total_count: shas.size } };
+};
+
+/**
  * Fetch all the commits for all the repositories of a given username.
  *
  * @param {string} username GitHub username.
@@ -196,7 +273,10 @@ const totalCommitsFetcher = async (username) => {
 
   let res;
   try {
-    res = await retryer(fetchTotalCommits, { login: username });
+    res = await retryer(
+      countAllBranchCommits ? fetchAllBranchCommits : fetchTotalCommits,
+      { login: username },
+    );
   } catch (err) {
     logger.log(err);
     throw new Error(err);
