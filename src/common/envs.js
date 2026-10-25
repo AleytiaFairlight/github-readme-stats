@@ -12,4 +12,8 @@ const excludeRepositories = process.env.EXCLUDE_REPO
   ? process.env.EXCLUDE_REPO.split(",")
   : [];
 
-export { whitelist, gistWhitelist, excludeRepositories };
+// Self-hosted instances whose PAT can read private repositories may opt in to
+// pinning them. Keep this off on public deployments.
+const allowPrivateRepos = process.env.ALLOW_PRIVATE_REPOS === "true";
+
+export { whitelist, gistWhitelist, excludeRepositories, allowPrivateRepos };

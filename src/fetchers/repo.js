@@ -1,18 +1,16 @@
 // @ts-check
-import { retryer } from "../common/retryer.js";
-import { MissingParamError, request } from "../common/utils.js";
 
-/**
- * @typedef {import('axios').AxiosRequestHeaders} AxiosRequestHeaders Axios request headers.
- * @typedef {import('axios').AxiosResponse} AxiosResponse Axios response.
- */
+import { allowPrivateRepos } from "../common/envs.js";
+import { MissingParamError } from "../common/error.js";
+import { request } from "../common/http.js";
+import { retryer } from "../common/retryer.js";
 
 /**
  * Repo data fetcher.
  *
- * @param {AxiosRequestHeaders} variables Fetcher variables.
+ * @param {object} variables Fetcher variables.
  * @param {string} token GitHub token.
- * @returns {Promise<AxiosResponse>} The response.
+ * @returns {Promise<import('axios').AxiosResponse>} The response.
  */
 const fetcher = (variables, token) => {
   return request(
@@ -91,10 +89,13 @@ const fetchRepo = async (username, reponame) => {
   const isUser = data.organization === null && data.user;
   const isOrg = data.user === null && data.organization;
 
-  if (isUser) /*{
-    if (!data.user.repository /*|| data.user.repository.isPrivate) {
+  if (isUser) {
+    if (
+      !data.user.repository ||
+      (data.user.repository.isPrivate && !allowPrivateRepos)
+    ) {
       throw new Error("User Repository Not found");
-    }*/
+    }
     return {
       ...data.user.repository,
       starCount: data.user.repository.stargazers.totalCount,
@@ -103,7 +104,9 @@ const fetchRepo = async (username, reponame) => {
 
   if (isOrg) {
     if (
-      !data.organization.repository || data.organization.repository.isPrivate) {
+      !data.organization.repository ||
+      (data.organization.repository.isPrivate && !allowPrivateRepos)
+    ) {
       throw new Error("Organization Repository Not found");
     }
     return {
